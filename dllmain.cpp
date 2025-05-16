@@ -1,12 +1,16 @@
+#define _WIN32_WINDOWS
+#include <asio.hpp>
+#include <asio/ts/buffer.hpp>
+#include <asio/ts/internet.hpp>
 #include <windows.h>
 #include <iostream>
 #include <string>
 #include <stdio.h>
 #include <time.h>
 #include "mem.h"
-#include <windef.h>
 #include <stdlib.h>
 
+std::vector<char> vBuffer(20 * 1024);
 
 enum LOG_TYPE {
   LOG_INFO,
@@ -53,6 +57,22 @@ void logger(LOG_TYPE logType, std::string message, ...) {
   std::cout << std::endl;
 }
 
+void ProcessServerData(asio::ip::tcp::socket& socket) {
+  std::string data;
+  socket.async_read_some(asio::buffer(vBuffer.data(), vBuffer.size()),[&](std::error_code ec, std::size_t length) {
+    if (!ec) {
+      std::cout << "\n\nRead " << length << " bytes\n\n";
+
+      for (int i = 0; i < length; i++)
+	std::cout << vBuffer[i];
+
+      ProcessServerData(socket);
+    }
+  });
+  
+  std::cout << data;
+}
+
 DWORD WINAPI WolfMP(HMODULE hModule) {
   AllocConsole();
   FILE* f = new FILE;
@@ -64,11 +84,47 @@ DWORD WINAPI WolfMP(HMODULE hModule) {
   SetConsoleMode(hConsole, dwMode);
   
   logger(LOG_INFO, "Starting client WIP !");
+  logger(LOG_INFO, "Connecting to remote..");
+
+  asio::error_code ec;
+
+  asio::io_context context;
+
+  asio::io_context::work idleWork(context);
   
+  std::thread thrContext = std::thread([&]() { context.run(); });
+  asio::ip::tcp::endpoint endpoint(asio::ip::make_address("127.0.0.1", ec), 8080);
+
+  asio::ip::tcp::socket socket(context);
+
+  socket.connect(endpoint, ec);
+
+  if (!ec) {
+    logger(LOG_SUCCESS, "Connected!");
+  } else {
+    logger(LOG_ERROR, "Failed to connect: %s", ec.message());
+  }
+
   while(true) {
+
+    if (GetAsyncKeyState(VK_NUMPAD9) & 1) {
+      ProcessServerData(socket);
+      std:: string sRequest = "getServerInfo";
+
+      socket.write_some(asio::buffer(sRequest.data(), sRequest.size()), ec);
+    }
+
+    if (GetAsyncKeyState(VK_NUMPAD5) & 1) {
+      for (int i = 0; i < sizeof(vBuffer); i++)
+	std::cout << vBuffer[i];
+    }
+
     if (GetAsyncKeyState(VK_NUMPAD3) & 1) {
+      context.stop();
+      socket.close();
       break;
     }
+
 
     Sleep(5);
   }
